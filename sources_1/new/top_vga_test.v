@@ -32,6 +32,7 @@ module top_vga_test(
     wire active_video;
 
     wire cam_init_done;
+    wire cam_rst_n;
 
     wire [15:0] cap_pixel_data;
     wire        cap_pixel_valid;
@@ -80,6 +81,7 @@ module top_vga_test(
         .reset     (1'b0),
         .cam_scl   (cam_scl),
         .cam_sda   (cam_sda),
+        .cam_rst_n (cam_rst_n),
         .init_done (cam_init_done)
     );
 
@@ -101,40 +103,37 @@ module top_vga_test(
     //---------------------------------------------
     // Camera control
     //---------------------------------------------
-    assign cam_rst  = 1'b1;
+    assign cam_rst  = cam_rst_n;  // SCCB 모듈이 부팅 시 10ms 동안 LOW 유지 후 해제
     assign cam_xclk = clk_24m;
     assign cam_pwdn = 1'b0;
 
     // ---------------------------------------------
-    // Downsample (320x240 → 160x120)
+    // Write address: 320x240 그대로 저장
+    // addr = y*320 + x = (y<<8) + (y<<6) + x
     // ---------------------------------------------
+    wire [8:0] wr_x = cap_pixel_x[8:0];  // 0~319
+    wire [7:0] wr_y = cap_pixel_y[7:0];  // 0~239
 
-    // downsample: 짝수 픽셀만 사용 (160x120)
-    wire wr_en_ds = cap_pixel_valid & ~cap_pixel_x[0] & ~cap_pixel_y[0];
-
-    // x/2, y/2
-    wire [7:0] ds_x = cap_pixel_x[9:1];   // 0~159
-    wire [6:0] ds_y = cap_pixel_y[8:1];   // 0~119
-
-    // addr = y*160 + x = (y<<7) + (y<<5) + x
-    wire [14:0] wr_addr =
-        (ds_y << 7) + (ds_y << 5) + ds_x;
+    wire [16:0] wr_addr =
+        ({9'd0, wr_y} << 8) + ({9'd0, wr_y} << 6) + {8'd0, wr_x};
 
     //---------------------------------------------
-    // VGA read address (4배 확대)
+    // VGA read address (1:1, 좌상단 320x240만 표시)
     //---------------------------------------------
-    wire [7:0] rd_x = x[9:2];  // /4
-    wire [6:0] rd_y = y[8:2];  // /4
+    wire in_range = (x < 320) && (y < 240);
 
-    wire [14:0] rd_addr =
-        (rd_y << 7) + (rd_y << 5) + rd_x;
+    wire [8:0] rd_x = x[8:0];   // 0~319
+    wire [7:0] rd_y = y[7:0];   // 0~239
+
+    wire [16:0] rd_addr =
+        ({9'd0, rd_y} << 8) + ({9'd0, rd_y} << 6) + {8'd0, rd_x};
 
     //---------------------------------------------
     // Framebuffer
     //---------------------------------------------
     frame_buffer_dp u_fb (
         .wr_clk  (cam_pclk),
-        .wr_en   (wr_en_ds),
+        .wr_en   (cap_pixel_valid),
         .wr_addr (wr_addr),
         .wr_data (cap_pixel_data),
 
@@ -158,10 +157,10 @@ module top_vga_test(
         .b(cam_b)
     );
  
-    // VGA output
-    assign vgaRed   = active_video ? cam_r : 4'd0;
-    assign vgaGreen = active_video ? cam_g : 4'd0;
-    assign vgaBlue  = active_video ? cam_b : 4'd0;
+    // VGA output (320x240 영역만 표시, 나머지 검정)
+    assign vgaRed   = (active_video && in_range) ? cam_r : 4'd0;
+    assign vgaGreen = (active_video && in_range) ? cam_g : 4'd0;
+    assign vgaBlue  = (active_video && in_range) ? cam_b : 4'd0;
 
     // debug LEDs 
     assign led[0] = cam_pclk;
