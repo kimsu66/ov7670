@@ -23,7 +23,10 @@ module top_vga_test(
     output       Vsync
 );
 
-    wire clk_25m;
+    wire clk_24m;   // → cam_xclk
+    wire clk_vga;   // → vga_controller (25.175MHz)
+    wire pll_locked;
+
     wire [9:0] x;
     wire [9:0] y;
     wire active_video;
@@ -43,19 +46,24 @@ module top_vga_test(
     wire [15:0] display_pixel;
 
     // ---------------------------------------------
-    // 100MHz -> 25MHz
+    // Clocking Wizard: 100MHz → 24MHz, 25.175MHz
+    // Vivado IP: clk_wiz_0
+    //   clk_out1 = 24MHz     (cam_xclk)
+    //   clk_out2 = 25.175MHz (VGA pixel clock)
     // ---------------------------------------------
-    clock_divider u_clock_divider (
-        .clk_in  (clk),
-        .reset   (1'b0),
-        .clk_25m (clk_25m)
+    clk_wiz_0 u_clk_wiz (
+        .clk_in1  (clk),
+        .reset    (1'b0),
+        .locked   (pll_locked),
+        .clk_out1 (clk_24m),
+        .clk_out2 (clk_vga)
     );
 
     // ---------------------------------------------
     // VGA timing generator
     // ---------------------------------------------
     vga_controller_640x480 u_vga_controller (
-        .clk          (clk_25m),
+        .clk          (clk_vga),
         .reset        (1'b0),
         .x            (x),
         .y            (y),
@@ -94,7 +102,7 @@ module top_vga_test(
     // Camera control
     //---------------------------------------------
     assign cam_rst  = 1'b1;
-    assign cam_xclk = clk_25m;
+    assign cam_xclk = clk_24m;
     assign cam_pwdn = 1'b0;
 
     // ---------------------------------------------
@@ -130,7 +138,7 @@ module top_vga_test(
         .wr_addr (wr_addr),
         .wr_data (cap_pixel_data),
 
-        .rd_clk  (clk_25m),
+        .rd_clk  (clk_vga),
         .rd_addr (rd_addr),
         .rd_data (fb_pixel)
     );
