@@ -132,10 +132,10 @@ module ov7670_sccb_init(
                 end
 
                 ST_START_1: begin
-                    scl_int <= 1'b0;
+                    scl_int <= 1'b1;   // SCL 반드시 HIGH 유지 (START: SCL=H일 때 SDA 하강)
                     sda_oe  <= 1'b1;
-                    sda_out <= 1'b0; // SDA=0 (START 조건 완성)
-                    state   <= ST_START_2; // [수정] SCL 내리는 단계로
+                    sda_out <= 1'b0;   // SDA만 LOW로 → START 조건 성립
+                    state   <= ST_START_2;
                 end
  
                 // [수정] START 후 SCL을 내리고 나서 데이터 전송 시작
