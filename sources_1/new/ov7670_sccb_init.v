@@ -48,6 +48,10 @@ module ov7670_sccb_init(
     localparam ST_LOAD       = 4'd1;
     localparam ST_START_0    = 4'd2;
     localparam ST_START_1    = 4'd3;
+    // [수정] START 조건 후 SCL을 내리는 단계 추가
+    // 기존에는 START_1에서 바로 SEND_BIT0으로 가서
+    // SCL↑ 구간에 SDA=0(START)이 첫 비트로 잡혀 슬레이브 주소가 1비트 밀렸음
+    localparam ST_START_2    = 4'd13; // [수정] SCL 내리는 단계
     localparam ST_SEND_BIT0  = 4'd4;
     localparam ST_SEND_BIT1  = 4'd5;
     localparam ST_ACK_0      = 4'd6;
@@ -69,6 +73,7 @@ module ov7670_sccb_init(
     // ── 부팅 대기 : 10ms (하드웨어 리셋 유지) ───────────────────────
     reg [23:0] boot_cnt = 24'd0;
     wire boot_done = (boot_cnt == 24'd999_999);
+    // wire boot_done = (boot_cnt == 24'd9);
 
     always @(posedge clk or posedge reset) begin
         if (reset)
@@ -80,6 +85,7 @@ module ov7670_sccb_init(
     // ── 소프트 리셋 후 대기 : 5ms (400kHz tick 기준 2000 tick) ──────
     reg [11:0] swrst_cnt;
     localparam SWRST_WAIT = 12'd1999;
+    // localparam SWRST_WAIT = 12'd4;
 
     always @(posedge clk or posedge reset) begin
         if (reset) begin
@@ -126,11 +132,19 @@ module ov7670_sccb_init(
                 end
 
                 ST_START_1: begin
-                    scl_int   <= 1'b1;
-                    sda_oe    <= 1'b1;
-                    sda_out   <= 1'b0;
+                    scl_int <= 1'b0;
+                    sda_oe  <= 1'b1;
+                    sda_out <= 1'b0; // SDA=0 (START 조건 완성)
+                    state   <= ST_START_2; // [수정] SCL 내리는 단계로
+                end
+ 
+                // [수정] START 후 SCL을 내리고 나서 데이터 전송 시작
+                // 이전: START_1에서 바로 SEND_BIT0으로 가서 슬레이브 주소 1비트 밀림
+                // 수정: SCL=0으로 내린 후 bit_index/byte_data 세팅하고 전송 시작
+                ST_START_2: begin
+                    scl_int   <= 1'b0;    // SCL 내림
                     bit_index <= 3'd7;
-                    byte_data <= 8'h42; // OV7670 write address
+                    byte_data <= 8'h42;   // OV7670 write address
                     state     <= ST_SEND_BIT0;
                 end
 
