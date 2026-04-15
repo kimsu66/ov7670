@@ -27,6 +27,7 @@ module top_vga_test(
     wire [9:0] x;
     wire [9:0] y;
     wire active_video;
+
     wire cam_init_done;
 
     wire [15:0] cap_pixel_data;
@@ -34,13 +35,12 @@ module top_vga_test(
     wire [9:0]  cap_pixel_x;
     wire [8:0]  cap_pixel_y;
 
-    wire [3:0] cam_r;
-    wire [3:0] cam_g;
-    wire [3:0] cam_b;
+    wire [3:0]  cam_r;
+    wire [3:0]  cam_g;
+    wire [3:0]  cam_b;
 
-    // 마지막으로 잡힌 픽셀을 VGA쪽에서 그냥 계속 보여주기 위한 레지스터
-    // 완전한 CDC 처리는 아니지만, 직결 테스트용으로는 충분
-    reg [15:0] display_pixel = 16'h0000;
+    wire [15:0] fb_pixel;
+    wire [15:0] display_pixel;
 
     // ---------------------------------------------
     // 100MHz -> 25MHz
@@ -97,13 +97,48 @@ module top_vga_test(
     assign cam_xclk = clk_25m;
     assign cam_pwdn = 1'b0;
 
+    // ---------------------------------------------
+    // Downsample (320x240 → 160x120)
+    // ---------------------------------------------
+
+    // downsample: 짝수 픽셀만 사용 (160x120)
+    wire wr_en_ds = cap_pixel_valid & ~cap_pixel_x[0] & ~cap_pixel_y[0];
+
+    // x/2, y/2
+    wire [7:0] ds_x = cap_pixel_x[9:1];   // 0~159
+    wire [6:0] ds_y = cap_pixel_y[8:1];   // 0~119
+
+    // addr = y*160 + x = (y<<7) + (y<<5) + x
+    wire [14:0] wr_addr =
+        (ds_y << 7) + (ds_y << 5) + ds_x;
+
     //---------------------------------------------
-    // 마지막 유효 픽셀 보관
+    // VGA read address (4배 확대)
     //---------------------------------------------
-    always @(posedge cam_pclk) begin
-        if (cap_pixel_valid)
-            display_pixel <= cap_pixel_data;
-    end
+    wire [7:0] rd_x = x[9:2];  // /4
+    wire [6:0] rd_y = y[8:2];  // /4
+
+    wire [14:0] rd_addr =
+        (rd_y << 7) + (rd_y << 5) + rd_x;
+
+    //---------------------------------------------
+    // Framebuffer
+    //---------------------------------------------
+    frame_buffer_dp u_fb (
+        .wr_clk  (cam_pclk),
+        .wr_en   (wr_en_ds),
+        .wr_addr (wr_addr),
+        .wr_data (cap_pixel_data),
+
+        .rd_clk  (clk_25m),
+        .rd_addr (rd_addr),
+        .rd_data (fb_pixel)
+    );
+
+    //---------------------------------------------
+    // Framebuffer → display 연결
+    //---------------------------------------------
+    assign display_pixel = fb_pixel;
 
     //---------------------------------------------
     // RGB565 -> RGB444
